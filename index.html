@@ -61,8 +61,12 @@
   <div class="hint">方向键/WASD 移动 · 空格 挥剑 · E 技能 · Q 道具 · B 商店 · T 图鉴 · D 地图 · P 暂停</div>
   <canvas id="game"></canvas>
 
+  <!-- 顶部右侧按钮（始终可见，桌面+触屏共用） -->
+  <div class="top-btns" style="display: flex;">
+    <button class="top-btn" id="muteBtn" title="静音 M">🔊</button>
+  </div>
   <!-- 触屏控制（手机/平板） -->
-  <div class="touch-ui top-btns">
+  <div class="touch-ui top-btns" style="right: 60px;">
     <button class="top-btn" data-key="d">🗺️</button>
     <button class="top-btn" data-key="b">🏪</button>
     <button class="top-btn" data-key="t">📖</button>
@@ -90,6 +94,81 @@ function applyCanvasSize() {
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
 }
 applyCanvasSize();
+
+// === 音效系统：Web Audio 程序化生成 ===
+let ac = null, masterGain = null, muted = false;
+const lastPlayed = {};
+function initAudio() {
+  if (ac) return;
+  try {
+    ac = new (window.AudioContext || window.webkitAudioContext)();
+    masterGain = ac.createGain();
+    masterGain.gain.value = 0.5;
+    masterGain.connect(ac.destination);
+  } catch (e) { ac = null; }
+}
+function unlockAudio() { initAudio(); if (ac && ac.state === 'suspended') ac.resume(); }
+window.addEventListener('keydown', unlockAudio, { once: true });
+window.addEventListener('pointerdown', unlockAudio, { once: true });
+
+function tone(freq, dur, opts = {}) {
+  if (!ac || muted) return;
+  const t = ac.currentTime;
+  const osc = ac.createOscillator();
+  const g = ac.createGain();
+  osc.type = opts.type || 'sine';
+  osc.frequency.setValueAtTime(freq, t);
+  if (opts.toFreq) osc.frequency.exponentialRampToValueAtTime(opts.toFreq, t + dur);
+  const vol = opts.vol != null ? opts.vol : 0.18;
+  g.gain.setValueAtTime(vol, t);
+  g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+  osc.connect(g).connect(masterGain);
+  osc.start(t);
+  osc.stop(t + dur + 0.02);
+}
+function throttle(name, ms) {
+  const now = Date.now();
+  if (lastPlayed[name] && now - lastPlayed[name] < ms) return false;
+  lastPlayed[name] = now;
+  return true;
+}
+const SFX = {
+  swing()      { tone(900, 0.10, { type: 'sawtooth', toFreq: 220, vol: 0.10 }); },
+  enemyDie()   {
+    if (!throttle('enemyDie', 50)) return;
+    tone(700, 0.08, { type: 'square', toFreq: 200, vol: 0.13 });
+    setTimeout(() => tone(420, 0.10, { type: 'square', toFreq: 100, vol: 0.10 }), 60);
+  },
+  bossDie()    {
+    tone(523, 0.16, { type: 'triangle', vol: 0.22 });
+    setTimeout(() => tone(659, 0.16, { type: 'triangle', vol: 0.22 }), 130);
+    setTimeout(() => tone(784, 0.18, { type: 'triangle', vol: 0.22 }), 260);
+    setTimeout(() => tone(1047, 0.30, { type: 'triangle', vol: 0.25 }), 400);
+  },
+  hurt()       { if (!throttle('hurt', 180)) return; tone(220, 0.18, { type: 'sawtooth', toFreq: 80, vol: 0.22 }); },
+  death()      {
+    tone(400, 0.25, { type: 'sawtooth', toFreq: 100, vol: 0.26 });
+    setTimeout(() => tone(200, 0.4, { type: 'sawtooth', toFreq: 40, vol: 0.22 }), 230);
+  },
+  coin()       { if (!throttle('coin', 60)) return; tone(1320, 0.06, { type: 'triangle', toFreq: 1760, vol: 0.07 }); },
+  item()       { tone(880, 0.10, { type: 'triangle', toFreq: 1320, vol: 0.14 }); },
+  skill()      { tone(250, 0.25, { type: 'square', toFreq: 1500, vol: 0.13 }); },
+  unlock()     {
+    tone(523, 0.10, { type: 'triangle', vol: 0.18 });
+    setTimeout(() => tone(659, 0.10, { type: 'triangle', vol: 0.18 }), 90);
+    setTimeout(() => tone(784, 0.20, { type: 'triangle', vol: 0.22 }), 180);
+  },
+  buy()        { tone(659, 0.08, { type: 'triangle', vol: 0.15 }); setTimeout(() => tone(880, 0.12, { type: 'triangle', vol: 0.18 }), 80); },
+  bossSpawn()  {
+    tone(90, 0.4, { type: 'sine', vol: 0.28 });
+    setTimeout(() => tone(60, 0.6, { type: 'sine', vol: 0.22 }), 150);
+  },
+  pause()      { tone(800, 0.06, { type: 'square', vol: 0.10 }); },
+  click()      { tone(1000, 0.03, { type: 'square', vol: 0.08 }); },
+  explode()    { tone(120, 0.25, { type: 'sawtooth', toFreq: 30, vol: 0.22 }); },
+};
+let _wasDead = false;
+let _lastHp = 5;
 
 const player = { x: W/2, y: H/2, size: 24, baseSpeed: 3, speed: 3, hp: 5, maxHp: 5, coin: 0, totalCoin: 0, rock: 0, potion: 0, dir: 'down', attacking: 0, skillActive: 0, skillCD: 0, regenTick: 0, equippedSkill: 'dash', ownedSkills: ['dash'], currentMap: 'forest', unlockedMaps: ['forest'] };
 
@@ -249,6 +328,7 @@ function spawnBoss() {
   b.x = W/2; b.y = -90;
   b.entering = 100;
   bosses.push(b);
+  SFX.bossSpawn();
 }
 
 // 一次刷新一批小怪（boss战时不刷）
@@ -277,11 +357,15 @@ function switchToMap(mapId) {
 }
 
 function update() {
+  // 玩家死亡过渡音
+  if (!_wasDead && player.hp <= 0) { SFX.death(); _wasDead = true; }
+  if (_wasDead && player.hp > 0) _wasDead = false;
+
   // P 键暂停
   if (keys['p'] && !player.pLocked) {
     player.pLocked = true;
-    if (gameState === 'play') gameState = 'paused';
-    else if (gameState === 'paused') gameState = 'play';
+    if (gameState === 'play') { gameState = 'paused'; SFX.pause(); }
+    else if (gameState === 'paused') { gameState = 'play'; SFX.pause(); }
   }
   if (!keys['p']) player.pLocked = false;
   if (gameState === 'paused') return;
@@ -289,10 +373,8 @@ function update() {
   // D 键打开/关闭地图选择
   if (keys['d'] && !player.dLocked) {
     player.dLocked = true;
-    // 注意 D 也是移动键之一，仅当不在 play 移动或 mapSelect 时切换；
-    // 用 shift+D 区分？太复杂。改用单纯一帧检测+lock。
-    if (gameState === 'play') gameState = 'mapSelect';
-    else if (gameState === 'mapSelect') gameState = 'play';
+    if (gameState === 'play') { gameState = 'mapSelect'; SFX.click(); }
+    else if (gameState === 'mapSelect') { gameState = 'play'; SFX.click(); }
   }
   if (!keys['d']) player.dLocked = false;
   if (gameState === 'mapSelect') return;
@@ -300,8 +382,8 @@ function update() {
   // T 打开/关闭图鉴
   if (keys['t'] && !player.tLocked) {
     player.tLocked = true;
-    if (gameState === 'play') gameState = 'codex';
-    else if (gameState === 'codex') gameState = 'play';
+    if (gameState === 'play') { gameState = 'codex'; SFX.click(); }
+    else if (gameState === 'codex') { gameState = 'play'; SFX.click(); }
   }
   if (!keys['t']) player.tLocked = false;
 
@@ -310,8 +392,8 @@ function update() {
     player.bLocked = true;
     const inShopRange = player.x > shop.x - 20 && player.x < shop.x + shop.w + 20 &&
                         player.y > shop.y - 20 && player.y < shop.y + shop.h + 20;
-    if (gameState === 'play' && inShopRange) gameState = 'shop';
-    else if (gameState === 'shop') gameState = 'play';
+    if (gameState === 'play' && inShopRange) { gameState = 'shop'; SFX.click(); }
+    else if (gameState === 'shop') { gameState = 'play'; SFX.click(); }
   }
   if (!keys['b']) player.bLocked = false;
 
@@ -325,10 +407,12 @@ function update() {
         const sk = SKILLS[id];
         if (player.ownedSkills.includes(id)) {
           player.equippedSkill = id;
+          SFX.click();
         } else if (player.coin >= sk.price) {
           player.coin -= sk.price;
           player.ownedSkills.push(id);
           player.equippedSkill = id;
+          SFX.buy();
         }
       }
       if (!keys[key]) player[`num${i}Locked`] = false;
@@ -340,16 +424,17 @@ function update() {
   // === 主动技能：E 触发 ===
   const equipped = player.equippedSkill;
   if (keys['e'] && player.skillCD <= 0 && player.skillActive <= 0) {
-    if (equipped === 'dash')   { player.skillActive = 30;  player.skillCD = 180; }
-    if (equipped === 'whirl')  { player.skillActive = 60;  player.skillCD = 360; }
+    let fired = false;
+    if (equipped === 'dash')   { player.skillActive = 30;  player.skillCD = 180; fired = true; }
+    if (equipped === 'whirl')  { player.skillActive = 60;  player.skillCD = 360; fired = true; }
     if (equipped === 'fire')   {
-      player.skillActive = 12; player.skillCD = 240;
+      player.skillActive = 12; player.skillCD = 240; fired = true;
       const angles = { up: -Math.PI/2, down: Math.PI/2, left: Math.PI, right: 0 };
       const ang = angles[player.dir];
       fireBeams.push({ x: player.x, y: player.y, ang, t: 25 });
     }
     if (equipped === 'freeze') {
-      player.skillActive = 18; player.skillCD = 420;
+      player.skillActive = 18; player.skillCD = 420; fired = true;
       freezeWaves.push({ x: player.x, y: player.y, t: 20 });
       for (const e of enemies) {
         if (Math.hypot(e.x - player.x, e.y - player.y) < 140) e.frozen = 90;
@@ -359,9 +444,10 @@ function update() {
       }
     }
     if (equipped === 'tornado') {
-      player.skillActive = 180; player.skillCD = 540;
+      player.skillActive = 180; player.skillCD = 540; fired = true;
       tornado.active = 180;
     }
+    if (fired) SFX.skill();
   }
   if (player.skillActive > 0) player.skillActive--;
   if (player.skillCD > 0) player.skillCD--;
@@ -395,6 +481,7 @@ function update() {
 
   if (keys[' '] && player.attacking <= 0) {
     player.attacking = 16;
+    SFX.swing();
   }
   if (player.attacking > 0) player.attacking--;
 
@@ -475,6 +562,7 @@ function update() {
         if (e.fuse <= 0) {
           // 爆炸：范围伤害玩家
           explosions.push({ x: e.x, y: e.y, t: 25 });
+          SFX.explode();
           if (Math.hypot(player.x - e.x, player.y - e.y) < 60) {
             if (!(equipped === 'shield' && Math.random() < 0.5)) {
               player.hp = Math.max(0, player.hp - 2);
@@ -524,7 +612,7 @@ function update() {
           const type = Math.random() < 0.5 ? 'rock' : 'potion';
           items.push({ x: e.x + 10, y: e.y + 10, type });
         }
-        enemies.splice(i, 1);
+        enemies.splice(i, 1); SFX.enemyDie();
         setTimeout(refreshEnemies, 1500);
         continue;
       }
@@ -727,7 +815,7 @@ function update() {
           type: types[Math.floor(Math.random() * types.length)]
         });
       }
-      bosses.splice(i, 1);
+      bosses.splice(i, 1); SFX.bossDie();
       // boss死后，下次刷怪由 refreshEnemies 决定
       setTimeout(refreshEnemies, 800);
       continue;
@@ -764,7 +852,7 @@ function update() {
             const gold = Math.floor(Math.random() * 4);
             for (let g = 0; g < gold; g++) coins.push({ x: e.x + (Math.random() - 0.5) * 16, y: e.y + (Math.random() - 0.5) * 16 });
             if (Math.random() < 0.08) items.push({ x: e.x, y: e.y, type: Math.random() < 0.5 ? 'rock' : 'potion' });
-            enemies.splice(j, 1);
+            enemies.splice(j, 1); SFX.enemyDie();
             setTimeout(refreshEnemies, 1500);
           }
         }
@@ -795,7 +883,7 @@ function update() {
               const gold = Math.floor(Math.random() * 4);
               for (let g = 0; g < gold; g++) coins.push({ x: e.x + (Math.random() - 0.5) * 16, y: e.y + (Math.random() - 0.5) * 16 });
               if (Math.random() < 0.08) items.push({ x: e.x, y: e.y, type: Math.random() < 0.5 ? 'rock' : 'potion' });
-              enemies.splice(j, 1);
+              enemies.splice(j, 1); SFX.enemyDie();
               setTimeout(refreshEnemies, 1500);
             }
           }
@@ -828,7 +916,7 @@ function update() {
               const type = Math.random() < 0.5 ? 'rock' : 'potion';
               items.push({ x: e.x, y: e.y, type });
             }
-            enemies.splice(j, 1);
+            enemies.splice(j, 1); SFX.enemyDie();
             setTimeout(refreshEnemies, 1500);
           }
         }
@@ -854,6 +942,7 @@ function update() {
       coins.splice(i, 1);
       player.coin++;
       player.totalCoin++;
+      SFX.coin();
       // 累计金币每100触发1个Boss
       while (player.totalCoin >= (bossesTriggered + 1) * 100) {
         bossesTriggered++;
@@ -866,6 +955,7 @@ function update() {
       if (items[i].type === 'rock') player.rock++;
       else player.potion++;
       items.splice(i, 1);
+      SFX.item();
     }
   }
 
@@ -887,6 +977,10 @@ function update() {
       projectiles.splice(i, 1);
     }
   }
+
+  // 受伤音：hp 减少时
+  if (player.hp < _lastHp && player.hp > 0) SFX.hurt();
+  _lastHp = player.hp;
 
   document.getElementById('hp').textContent = player.hp;
   document.getElementById('coin').textContent = player.coin;
@@ -2108,6 +2202,19 @@ addEventListener('keydown', e => {
   }
 });
 
+// 静音按钮 + M 键
+const muteBtn = document.getElementById('muteBtn');
+function updateMuteUI() { muteBtn.textContent = muted ? '🔇' : '🔊'; }
+muteBtn.addEventListener('pointerdown', e => {
+  e.preventDefault();
+  muted = !muted;
+  updateMuteUI();
+  if (!muted) { initAudio(); if (ac && ac.state === 'suspended') ac.resume(); SFX.click(); }
+});
+window.addEventListener('keydown', e => {
+  if (e.key.toLowerCase() === 'm') { muted = !muted; updateMuteUI(); if (!muted) SFX.click(); }
+});
+
 // === 触屏控制：摇杆 + 按钮 + 商店/图鉴卡片点击 ===
 const joyEl = document.getElementById('joy');
 const joyKnob = document.getElementById('joyKnob');
@@ -2194,10 +2301,12 @@ cv.addEventListener('pointerdown', e => {
         const sk = SKILLS[id];
         if (player.ownedSkills.includes(id)) {
           player.equippedSkill = id;
+          SFX.click();
         } else if (player.coin >= sk.price) {
           player.coin -= sk.price;
           player.ownedSkills.push(id);
           player.equippedSkill = id;
+          SFX.buy();
         }
         return;
       }
@@ -2217,6 +2326,7 @@ cv.addEventListener('pointerdown', e => {
           if (player.currentMap !== id) {
             switchToMap(id);
             gameState = 'play';
+            SFX.click();
           }
         } else if (player.coin >= m.price) {
           // 解锁
@@ -2224,6 +2334,7 @@ cv.addEventListener('pointerdown', e => {
           player.unlockedMaps.push(id);
           switchToMap(id);
           gameState = 'play';
+          SFX.unlock();
         }
         return;
       }
