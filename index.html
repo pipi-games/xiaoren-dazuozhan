@@ -1586,15 +1586,17 @@ function draw() {
     ctx.lineWidth = 1;
   }
 
-  // 玩家（小武士：圆头 + 披风 + 剑）
+  // 玩家（帅气小英雄：飘动红披风 + 蓝战袍 + 金宝石剑）
   const dashingNow = player.equippedSkill === 'dash' && player.skillActive > 0;
-  const playerBob = Math.sin(Date.now() / 180) * 1.2;
+  const _now = Date.now();
+  const playerBob = Math.sin(_now / 180) * 1.2;
   const px = player.x, py = player.y + playerBob;
+  const flutter = Math.sin(_now / 200) * 3;
 
   // 影子（不随浮动）
-  ctx.fillStyle = 'rgba(0,0,0,0.35)';
+  ctx.fillStyle = 'rgba(0,0,0,0.4)';
   ctx.beginPath();
-  ctx.ellipse(player.x, player.y + 12, 11, 4, 0, 0, Math.PI * 2);
+  ctx.ellipse(player.x, player.y + 13, 12, 4, 0, 0, Math.PI * 2);
   ctx.fill();
 
   // 冲刺残影
@@ -1607,68 +1609,213 @@ function draw() {
     }
   }
 
-  // 披风/身体（梯形）
+  // 披风（在身后两侧飘动）
+  ctx.fillStyle = '#c8001f';
+  ctx.beginPath();
+  ctx.moveTo(px - 5, py - 4);
+  ctx.quadraticCurveTo(px - 15 - flutter, py + 4, px - 9 + flutter * 0.4, py + 15);
+  ctx.lineTo(px - 2, py + 12);
+  ctx.lineTo(px - 2, py - 4);
+  ctx.closePath(); ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(px + 5, py - 4);
+  ctx.quadraticCurveTo(px + 15 + flutter, py + 4, px + 9 - flutter * 0.4, py + 15);
+  ctx.lineTo(px + 2, py + 12);
+  ctx.lineTo(px + 2, py - 4);
+  ctx.closePath(); ctx.fill();
+  // 披风暗色描边
+  ctx.strokeStyle = '#7a0015';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(px - 5, py - 4);
+  ctx.quadraticCurveTo(px - 15 - flutter, py + 4, px - 9 + flutter * 0.4, py + 15);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(px + 5, py - 4);
+  ctx.quadraticCurveTo(px + 15 + flutter, py + 4, px + 9 - flutter * 0.4, py + 15);
+  ctx.stroke();
+  ctx.lineWidth = 1;
+
+  // 战袍主体（蓝色，梯形）
   ctx.fillStyle = dashingNow ? '#7fbfff' : '#2670c8';
   ctx.beginPath();
-  ctx.moveTo(px - 9, py - 2);
-  ctx.lineTo(px - 11, py + 11);
-  ctx.lineTo(px + 11, py + 11);
-  ctx.lineTo(px + 9, py - 2);
+  ctx.moveTo(px - 8, py - 2);
+  ctx.lineTo(px - 10, py + 12);
+  ctx.lineTo(px + 10, py + 12);
+  ctx.lineTo(px + 8, py - 2);
   ctx.closePath(); ctx.fill();
-  // 身体高光
+  // 高光
   ctx.fillStyle = dashingNow ? '#a6d0ff' : '#4a92e0';
-  ctx.fillRect(px - 7, py - 1, 3, 11);
+  ctx.fillRect(px - 7, py - 1, 2.5, 11);
+
+  // V 领（金色）
+  ctx.fillStyle = '#ffd84a';
+  ctx.beginPath();
+  ctx.moveTo(px - 6, py - 2);
+  ctx.lineTo(px, py + 4);
+  ctx.lineTo(px + 6, py - 2);
+  ctx.closePath(); ctx.fill();
+  ctx.fillStyle = '#c89a20';
+  ctx.beginPath();
+  ctx.moveTo(px - 5, py - 1);
+  ctx.lineTo(px, py + 3);
+  ctx.lineTo(px + 5, py - 1);
+  ctx.closePath(); ctx.fill();
+
+  // 腰带（棕色）
+  ctx.fillStyle = '#5a3018';
+  ctx.fillRect(px - 11, py + 8, 22, 3);
+  ctx.fillStyle = '#ffd84a';
+  ctx.fillRect(px - 2, py + 8, 4, 3);
+  ctx.fillStyle = '#c89a20';
+  ctx.fillRect(px - 1, py + 9, 1, 1);
 
   // 头部
   ctx.fillStyle = '#ffd4a3';
   ctx.beginPath();
-  ctx.arc(px, py - 6, 8.5, 0, Math.PI * 2);
+  ctx.arc(px, py - 7, 8, 0, Math.PI * 2);
   ctx.fill();
-  // 头发（上半）
-  ctx.fillStyle = '#3a2614';
+  // 下巴阴影（用 save/clip 限制在头内）
+  ctx.save();
   ctx.beginPath();
-  ctx.arc(px, py - 7, 8.5, Math.PI + 0.2, Math.PI * 2 - 0.2);
+  ctx.arc(px, py - 7, 8, 0, Math.PI * 2);
+  ctx.clip();
+  ctx.fillStyle = '#e8b896';
+  ctx.beginPath();
+  ctx.arc(px, py - 3, 8, Math.PI * 0.2, Math.PI - 0.2);
   ctx.fill();
-  ctx.fillRect(px - 8, py - 9, 16, 3);
+  ctx.restore();
 
-  // 眼睛 + 嘴（随朝向变化）
-  let exOff = 0, eyOff = 0, mouthY = -2;
-  if (player.dir === 'down')  { eyOff = 1;  mouthY = -1; }
-  if (player.dir === 'up')    { eyOff = -1; mouthY = -3; }
+  // 头发（黑色 + V 形刘海）
+  ctx.fillStyle = '#1a0e0a';
+  ctx.beginPath();
+  ctx.arc(px, py - 8, 8, Math.PI + 0.15, Math.PI * 2 - 0.15);
+  ctx.fill();
+  ctx.fillRect(px - 8, py - 10, 16, 3);
+  // 刘海尖
+  ctx.beginPath();
+  ctx.moveTo(px - 5, py - 9);
+  ctx.lineTo(px - 1, py - 4);
+  ctx.lineTo(px + 2, py - 5);
+  ctx.lineTo(px + 5, py - 9);
+  ctx.closePath(); ctx.fill();
+
+  // 红色发带横跨额头
+  ctx.fillStyle = '#d62828';
+  ctx.fillRect(px - 8, py - 9, 16, 2);
+  ctx.fillStyle = '#ffd84a';
+  ctx.fillRect(px - 1, py - 9, 2, 2);
+  // 发带飘带（侧后方）
+  ctx.fillStyle = '#d62828';
+  ctx.beginPath();
+  ctx.moveTo(px - 8, py - 8);
+  ctx.lineTo(px - 13 - flutter * 0.5, py - 4);
+  ctx.lineTo(px - 11 - flutter * 0.5, py - 3);
+  ctx.lineTo(px - 8, py - 5);
+  ctx.closePath(); ctx.fill();
+
+  // 朝向偏移
+  let exOff = 0, eyOff = 0;
+  if (player.dir === 'down')  { eyOff = 1; }
+  if (player.dir === 'up')    { eyOff = -1; }
   if (player.dir === 'left')  { exOff = -2; }
   if (player.dir === 'right') { exOff = 2; }
-  ctx.fillStyle = '#000';
-  ctx.fillRect(px - 3 + exOff, py - 6 + eyOff, 2, 2);
-  ctx.fillRect(px + 1 + exOff, py - 6 + eyOff, 2, 2);
-  // 嘴
-  ctx.fillStyle = '#a04040';
-  ctx.fillRect(px - 1 + exOff, py + mouthY, 2, 1);
 
-  // 剑（朝向旋转 + 攻击时挥舞）
+  // V 字坚毅眉毛
+  ctx.strokeStyle = '#1a0e0a';
+  ctx.lineWidth = 1.8;
+  ctx.beginPath();
+  ctx.moveTo(px - 5 + exOff, py - 6 + eyOff);
+  ctx.lineTo(px - 2 + exOff, py - 7 + eyOff);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(px + 2 + exOff, py - 7 + eyOff);
+  ctx.lineTo(px + 5 + exOff, py - 6 + eyOff);
+  ctx.stroke();
+  ctx.lineWidth = 1;
+
+  // 眼睛：白底 + 蓝虹膜 + 黑瞳 + 高光
+  ctx.fillStyle = '#fff';
+  ctx.beginPath();
+  ctx.arc(px - 3 + exOff, py - 4 + eyOff, 2, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(px + 3 + exOff, py - 4 + eyOff, 2, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#2080d8';
+  ctx.fillRect(px - 4 + exOff, py - 5 + eyOff, 2, 2);
+  ctx.fillRect(px + 2 + exOff, py - 5 + eyOff, 2, 2);
+  ctx.fillStyle = '#000';
+  ctx.fillRect(px - 3 + exOff, py - 4 + eyOff, 1, 1);
+  ctx.fillRect(px + 3 + exOff, py - 4 + eyOff, 1, 1);
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(px - 3 + exOff, py - 5 + eyOff, 0.7, 0.7);
+  ctx.fillRect(px + 3 + exOff, py - 5 + eyOff, 0.7, 0.7);
+
+  // 嘴角微笑
+  ctx.strokeStyle = '#5a2a2a';
+  ctx.lineWidth = 1.2;
+  ctx.beginPath();
+  ctx.moveTo(px - 2 + exOff, py - 1);
+  ctx.quadraticCurveTo(px + exOff, py + 0.5, px + 2 + exOff, py - 1);
+  ctx.stroke();
+  ctx.lineWidth = 1;
+
+  // 剑（黑柄缠绳 + 金色十字护手 + 蓝宝石 + 双刃银光）
   ctx.save();
   ctx.translate(px, py);
   const swordBaseAng = { up: -Math.PI/2, down: Math.PI/2, left: Math.PI, right: 0 }[player.dir] || 0;
   ctx.rotate(swordBaseAng);
   const swing = player.attacking > 0 ? Math.sin((1 - player.attacking/16) * Math.PI) * 0.5 : 0;
   ctx.rotate(swing);
-  // 剑柄
-  ctx.fillStyle = '#8b5a2b';
-  ctx.fillRect(7, -2, 3, 4);
-  // 护手
-  ctx.fillStyle = '#d4af37';
-  ctx.fillRect(10, -3, 2, 6);
-  // 剑刃
-  ctx.fillStyle = '#e6e6e6';
-  ctx.fillRect(12, -1.5, 14, 3);
-  ctx.fillStyle = '#fff';
-  ctx.fillRect(12, -1.5, 14, 1);
-  // 剑尖
-  ctx.fillStyle = '#cccccc';
+  // 持剑的手
+  ctx.fillStyle = '#ffd4a3';
   ctx.beginPath();
-  ctx.moveTo(26, -1.5);
-  ctx.lineTo(30, 0);
-  ctx.lineTo(26, 1.5);
+  ctx.arc(7, 0, 2.6, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = '#a07050';
+  ctx.lineWidth = 0.8;
+  ctx.stroke();
+  ctx.lineWidth = 1;
+  // 剑柄（黑色缠绳）
+  ctx.fillStyle = '#1a1a1a';
+  ctx.fillRect(8, -1.6, 5, 3.2);
+  ctx.strokeStyle = '#5a5a5a';
+  ctx.lineWidth = 0.4;
+  for (let s = 8.5; s <= 12.5; s += 1.2) {
+    ctx.beginPath();
+    ctx.moveTo(s, -1.6);
+    ctx.lineTo(s + 0.3, 1.6);
+    ctx.stroke();
+  }
+  ctx.lineWidth = 1;
+  // 金色十字护手
+  ctx.fillStyle = '#ffd84a';
+  ctx.fillRect(12.5, -4.5, 3, 9);
+  ctx.fillStyle = '#c89a20';
+  ctx.fillRect(12.5, -4.5, 1, 9);
+  // 蓝宝石嵌在护手中央
+  ctx.fillStyle = '#3aa0ff';
+  ctx.beginPath();
+  ctx.arc(14, 0, 1.7, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#cce8ff';
+  ctx.fillRect(13.6, -0.8, 0.8, 0.8);
+  // 剑刃（菱形双刃）
+  ctx.fillStyle = '#dddddd';
+  ctx.beginPath();
+  ctx.moveTo(15.5, -2.2);
+  ctx.lineTo(29, -0.8);
+  ctx.lineTo(31, 0);
+  ctx.lineTo(29, 0.8);
+  ctx.lineTo(15.5, 2.2);
   ctx.closePath(); ctx.fill();
+  // 中心血槽
+  ctx.fillStyle = '#9a9a9a';
+  ctx.fillRect(16, -0.5, 13, 1);
+  // 刃高光
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(16, -1.8, 12, 0.9);
   ctx.restore();
 
   // 攻击 360°剑气特效
