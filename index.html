@@ -1275,7 +1275,7 @@ function draw() {
     ctx.fillStyle = '#fff';
     ctx.font = 'bold 14px sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText('按 B 进入商店', shop.x + shop.w/2, shop.y + shop.h + 18);
+    ctx.fillText(IS_TOUCH ? '点 🏪 进商店' : '按 B 进入商店', shop.x + shop.w/2, shop.y + shop.h + 18);
   }
 
   // 金币
