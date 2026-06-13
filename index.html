@@ -58,13 +58,14 @@
 <body>
   <div class="title-bar">⚔️ 小人大作战 ⚔️</div>
   <div id="hud">❤️ <span id="hp">5</span>　💰 <span id="coin">0</span>　🪨 <span id="rock">0</span>　❤️‍🩹 <span id="potion">0</span>　🎯 <span id="skill">💨冲刺</span>　⏱️<span id="skillCD">就绪</span></div>
-  <div class="hint">方向键/WASD 移动 · 空格 挥剑 · E 用技能 · Q 用道具 · B 商店 · T 图鉴 · P 暂停</div>
+  <div class="hint">方向键/WASD 移动 · 空格 挥剑 · E 技能 · Q 道具 · B 商店 · T 图鉴 · D 地图 · P 暂停</div>
   <canvas id="game"></canvas>
 
   <!-- 触屏控制（手机/平板） -->
   <div class="touch-ui top-btns">
-    <button class="top-btn" data-key="b">🏪 商店</button>
-    <button class="top-btn" data-key="t">📖 图鉴</button>
+    <button class="top-btn" data-key="d">🗺️</button>
+    <button class="top-btn" data-key="b">🏪</button>
+    <button class="top-btn" data-key="t">📖</button>
     <button class="top-btn" data-key="p">⏸️</button>
   </div>
   <div class="touch-ui" id="joy"><div id="joyKnob"></div></div>
@@ -90,9 +91,9 @@ function applyCanvasSize() {
 }
 applyCanvasSize();
 
-const player = { x: W/2, y: H/2, size: 24, baseSpeed: 3, speed: 3, hp: 5, maxHp: 5, coin: 0, totalCoin: 0, rock: 0, potion: 0, dir: 'down', attacking: 0, skillActive: 0, skillCD: 0, regenTick: 0, equippedSkill: 'dash', ownedSkills: ['dash'] };
+const player = { x: W/2, y: H/2, size: 24, baseSpeed: 3, speed: 3, hp: 5, maxHp: 5, coin: 0, totalCoin: 0, rock: 0, potion: 0, dir: 'down', attacking: 0, skillActive: 0, skillCD: 0, regenTick: 0, equippedSkill: 'dash', ownedSkills: ['dash'], currentMap: 'forest', unlockedMaps: ['forest'] };
 
-let gameState = 'play'; // 'play' | 'shop' | 'codex'
+let gameState = 'play'; // 'play' | 'shop' | 'codex' | 'paused' | 'mapSelect'
 let bossesTriggered = 0;
 const bosses = [];
 const fireBeams = []; // 火焰刃特效 {x,y,dir,t}
@@ -128,6 +129,16 @@ const CODEX = {
   dragon: { name: '🐉 巨龙 BOSS',     desc: '扇形火焰 + 高速冲撞。HP 56',          weakness: '⚡ 闪电链 ×3' },
 };
 
+// 地图定义：每张图有专属背景色、装饰主题、怪池
+const MAPS = {
+  forest:  { name: '🌳 森林',  price: 0,   bgTop: '#5e9a4d', bgBot: '#3f7338', dust: '#3a6a3a', path: 'rgba(180,140,90,0.35)', enemyTypes: ['red','green','yellow','bird','bomber'], decorTheme: 'forest',  desc: '默认家园。所有怪物都会出现。' },
+  desert:  { name: '🏜️ 沙漠',  price: 150, bgTop: '#e3b878', bgBot: '#8a6035', dust: '#a67843', path: 'rgba(120,80,40,0.3)',   enemyTypes: ['yellow','red','bird'],                  decorTheme: 'desert',  desc: '黄沙烈日，黄三角与红怪盘踞。' },
+  ice:     { name: '❄️ 冰河',  price: 300, bgTop: '#d0e6f2', bgBot: '#7aa0bc', dust: '#a0c0d8', path: 'rgba(220,235,245,0.5)', enemyTypes: ['green','bomber','red'],                 decorTheme: 'ice',     desc: '冰天雪地，绿怪和自爆冰球出没。' },
+  ocean:   { name: '🌊 海洋',  price: 500, bgTop: '#4a9ed8', bgBot: '#1d4f80', dust: '#3a7fb0', path: 'rgba(220,255,255,0.2)', enemyTypes: ['green','bird','yellow'],                decorTheme: 'ocean',   desc: '深蓝海域，绿怪和飞鱼环绕珊瑚。' },
+  volcano: { name: '🌋 火山',  price: 800, bgTop: '#7a2828', bgBot: '#1a0808', dust: '#3a1010', path: 'rgba(220,80,30,0.45)',  enemyTypes: ['red','bomber','yellow'],                decorTheme: 'volcano', desc: '熔岩流淌，红怪、自爆球和黄三角横行。' },
+};
+const MAP_ORDER = ['forest', 'desert', 'ice', 'ocean', 'volcano'];
+
 // 商店建筑（左上角）
 const shop = { x: 70, y: 70, w: 70, h: 60 };
 
@@ -139,30 +150,35 @@ const ENEMY_CAP = IS_TOUCH ? 8 : 20;
 const INIT_SPAWN = IS_TOUCH ? 3 : 5;
 if (IS_TOUCH) { player.baseSpeed = 2.2; player.speed = 2.2; }
 
-// 静态装饰：花/树/石头（随机一次，不动）
+// 静态装饰：按地图主题生成
 const decorations = [];
+const DECOR_THEMES = {
+  forest:  [{ t: 'flower', n: 14 }, { t: 'tree', n: 4 }, { t: 'rock', n: 5 }],
+  desert:  [{ t: 'cactus', n: 6 }, { t: 'dune', n: 7 }, { t: 'rock', n: 8 }],
+  ice:     [{ t: 'iceCrystal', n: 10 }, { t: 'snowMound', n: 6 }, { t: 'rock', n: 4 }],
+  ocean:   [{ t: 'coral', n: 10 }, { t: 'seaweed', n: 8 }, { t: 'rock', n: 5 }],
+  volcano: [{ t: 'lavaCrack', n: 12 }, { t: 'volcanoRock', n: 6 }, { t: 'rock', n: 5 }],
+};
 function seedDecorations() {
   decorations.length = 0;
   const rand = (a, b) => a + Math.random() * (b - a);
-  // 数量随屏幕面积缩放
   const scale = (W * H) / (640 * 480);
-  const nFlowers = Math.floor(14 * scale);
-  const nTrees = Math.floor(4 * scale);
-  const nRocks = Math.floor(5 * scale);
-  for (let i = 0; i < nFlowers; i++) {
-    let x, y;
-    do { x = rand(20, W - 20); y = rand(20, H - 20); }
-    while (x < shop.x + shop.w + 30 && y < shop.y + shop.h + 30);
-    decorations.push({ type: 'flower', x, y, color: ['#ff5f7a', '#ffd93d', '#a78bfa'][Math.floor(Math.random() * 3)] });
-  }
-  for (let i = 0; i < nTrees; i++) {
-    let x, y;
-    do { x = rand(40, W - 40); y = rand(40, H - 40); }
-    while ((x < shop.x + shop.w + 60 && y < shop.y + shop.h + 60) || Math.hypot(x - W/2, y - H/2) < 80);
-    decorations.push({ type: 'tree', x, y });
-  }
-  for (let i = 0; i < nRocks; i++) {
-    decorations.push({ type: 'rock', x: rand(30, W - 30), y: rand(30, H - 30) });
+  const theme = DECOR_THEMES[MAPS[player.currentMap].decorTheme] || DECOR_THEMES.forest;
+  for (const cfg of theme) {
+    const n = Math.floor(cfg.n * scale);
+    for (let i = 0; i < n; i++) {
+      let x, y, tries = 0;
+      do {
+        x = rand(20, W - 20); y = rand(20, H - 20);
+        tries++;
+      } while (tries < 8 && (
+        (x < shop.x + shop.w + 30 && y < shop.y + shop.h + 30) ||
+        (Math.hypot(x - W/2, y - H/2) < 70 && (cfg.t === 'tree' || cfg.t === 'cactus' || cfg.t === 'iceCrystal' || cfg.t === 'coral' || cfg.t === 'volcanoRock'))
+      ));
+      const d = { type: cfg.t, x, y };
+      if (cfg.t === 'flower') d.color = ['#ff5f7a', '#ffd93d', '#a78bfa'][Math.floor(Math.random() * 3)];
+      decorations.push(d);
+    }
   }
 }
 seedDecorations();
@@ -194,7 +210,8 @@ function spawnEnemy() {
   else if (side === 1) { x = W; y = Math.random() * H; }
   else if (side === 2) { x = Math.random() * W; y = 0; }
   else { x = Math.random() * W; y = H; }
-  const type = ENEMY_TYPES[Math.floor(Math.random() * ENEMY_TYPES.length)];
+  const types = MAPS[player.currentMap].enemyTypes;
+  const type = types[Math.floor(Math.random() * types.length)];
   let e;
   if (type === 'red') {
     e = { type, x, y, size: 22, hp: 2, speed: 1.2 * ENEMY_SPEED_MUL, cd: 0 };
@@ -240,6 +257,25 @@ function refreshEnemies() {
   for (let i = 0; i < SPAWN_BATCH && enemies.length < ENEMY_CAP; i++) spawnEnemy();
 }
 
+// 切换地图：清空场景 + 重新生成装饰 + 重新初始化怪
+function switchToMap(mapId) {
+  if (!player.unlockedMaps.includes(mapId)) return false;
+  player.currentMap = mapId;
+  enemies.length = 0;
+  bosses.length = 0;
+  coins.length = 0;
+  items.length = 0;
+  projectiles.length = 0;
+  rockStrikes.length = 0;
+  fireBeams.length = 0;
+  freezeWaves.length = 0;
+  explosions.length = 0;
+  player.x = W / 2; player.y = H / 2;
+  seedDecorations();
+  for (let i = 0; i < INIT_SPAWN; i++) spawnEnemy();
+  return true;
+}
+
 function update() {
   // P 键暂停
   if (keys['p'] && !player.pLocked) {
@@ -249,6 +285,17 @@ function update() {
   }
   if (!keys['p']) player.pLocked = false;
   if (gameState === 'paused') return;
+
+  // D 键打开/关闭地图选择
+  if (keys['d'] && !player.dLocked) {
+    player.dLocked = true;
+    // 注意 D 也是移动键之一，仅当不在 play 移动或 mapSelect 时切换；
+    // 用 shift+D 区分？太复杂。改用单纯一帧检测+lock。
+    if (gameState === 'play') gameState = 'mapSelect';
+    else if (gameState === 'mapSelect') gameState = 'play';
+  }
+  if (!keys['d']) player.dLocked = false;
+  if (gameState === 'mapSelect') return;
 
   // T 打开/关闭图鉴
   if (keys['t'] && !player.tLocked) {
@@ -855,20 +902,21 @@ function update() {
 
 function draw() {
   ctx.clearRect(0, 0, W, H);
-  // 草地渐变
+  const _map = MAPS[player.currentMap];
+  // 地图主背景渐变
   const grad = ctx.createLinearGradient(0, 0, 0, H);
-  grad.addColorStop(0, '#5e9a4d');
-  grad.addColorStop(1, '#3f7338');
+  grad.addColorStop(0, _map.bgTop);
+  grad.addColorStop(1, _map.bgBot);
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, W, H);
-  // 草丛纹理
-  ctx.fillStyle = '#3a6a3a';
+  // 纹理点
+  ctx.fillStyle = _map.dust;
   for (let i = 0; i < 120; i++) {
     const x = (i * 73) % W, y = (i * 131) % H;
     ctx.fillRect(x, y, 2, 4);
   }
-  // 土路（中央十字小道）
-  ctx.fillStyle = 'rgba(180,140,90,0.35)';
+  // 十字路径（每个地图颜色不同）
+  ctx.fillStyle = _map.path;
   ctx.fillRect(W/2 - 30, 0, 60, H);
   ctx.fillRect(0, H/2 - 25, W, 50);
 
@@ -911,6 +959,112 @@ function draw() {
       ctx.fill();
       ctx.fillStyle = '#5a5a5a';
       ctx.fillRect(d.x - 3, d.y - 2, 3, 2);
+    } else if (d.type === 'cactus') {
+      // 仙人掌：绿色立柱 + 两个分支
+      ctx.fillStyle = 'rgba(0,0,0,0.3)';
+      ctx.beginPath();
+      ctx.ellipse(d.x, d.y + 16, 12, 4, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#2a7a3a';
+      ctx.fillRect(d.x - 4, d.y - 14, 8, 28);
+      ctx.fillRect(d.x - 11, d.y - 4, 5, 12);
+      ctx.fillRect(d.x + 6, d.y - 8, 5, 14);
+      // 尖刺白点
+      ctx.fillStyle = '#cdebcd';
+      ctx.fillRect(d.x - 3, d.y - 10, 1, 1);
+      ctx.fillRect(d.x + 2, d.y - 6, 1, 1);
+      ctx.fillRect(d.x - 2, d.y + 2, 1, 1);
+    } else if (d.type === 'dune') {
+      // 沙丘：浅黄半椭圆
+      ctx.fillStyle = '#c89045';
+      ctx.beginPath();
+      ctx.ellipse(d.x, d.y, 22, 7, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#e2b46a';
+      ctx.beginPath();
+      ctx.ellipse(d.x - 4, d.y - 2, 14, 4, 0, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (d.type === 'iceCrystal') {
+      // 冰晶：蓝色尖角四方体
+      ctx.fillStyle = 'rgba(120,180,220,0.4)';
+      ctx.beginPath();
+      ctx.ellipse(d.x, d.y + 10, 9, 3, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#aed7ec';
+      ctx.beginPath();
+      ctx.moveTo(d.x, d.y - 12);
+      ctx.lineTo(d.x + 8, d.y);
+      ctx.lineTo(d.x, d.y + 10);
+      ctx.lineTo(d.x - 8, d.y);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = '#e0f0fa';
+      ctx.beginPath();
+      ctx.moveTo(d.x, d.y - 12);
+      ctx.lineTo(d.x + 2, d.y - 2);
+      ctx.lineTo(d.x - 4, d.y);
+      ctx.closePath();
+      ctx.fill();
+    } else if (d.type === 'snowMound') {
+      // 雪堆：白色椭圆
+      ctx.fillStyle = '#fafdff';
+      ctx.beginPath();
+      ctx.ellipse(d.x, d.y, 16, 7, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#e0eaf2';
+      ctx.beginPath();
+      ctx.ellipse(d.x + 3, d.y + 2, 10, 4, 0, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (d.type === 'coral') {
+      // 珊瑚：粉红/橙色分支
+      ctx.fillStyle = '#ff7a9e';
+      ctx.fillRect(d.x - 2, d.y - 6, 4, 14);
+      ctx.fillRect(d.x - 8, d.y - 2, 4, 10);
+      ctx.fillRect(d.x + 4, d.y, 4, 8);
+      ctx.fillStyle = '#ffb6c8';
+      ctx.beginPath();
+      ctx.arc(d.x, d.y - 8, 3, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(d.x - 8, d.y - 3, 2.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(d.x + 6, d.y - 1, 2.5, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (d.type === 'seaweed') {
+      // 海草：绿色波浪线
+      const t = Date.now() / 600;
+      ctx.strokeStyle = '#2dbf7a';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(d.x, d.y + 10);
+      for (let k = 0; k < 4; k++) {
+        const ph = k * 0.4 + t;
+        ctx.lineTo(d.x + Math.sin(ph) * 4, d.y + 10 - k * 6);
+      }
+      ctx.stroke();
+      ctx.lineWidth = 1;
+    } else if (d.type === 'lavaCrack') {
+      // 熔岩裂缝：红色发光线
+      const glow = 0.5 + Math.sin(Date.now() / 400 + d.x) * 0.3;
+      ctx.fillStyle = `rgba(255,120,30,${glow})`;
+      ctx.beginPath();
+      ctx.ellipse(d.x, d.y, 9, 3, Math.PI / 6, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = `rgba(255,230,80,${glow})`;
+      ctx.beginPath();
+      ctx.ellipse(d.x, d.y, 5, 1.5, Math.PI / 6, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (d.type === 'volcanoRock') {
+      // 火山岩：深灰带红裂
+      ctx.fillStyle = '#1a1410';
+      ctx.beginPath();
+      ctx.ellipse(d.x, d.y, 14, 10, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#3a2010';
+      ctx.fillRect(d.x - 4, d.y - 3, 2, 6);
+      ctx.fillStyle = '#ff5020';
+      ctx.fillRect(d.x + 1, d.y - 2, 1, 4);
     }
   }
 
@@ -1508,6 +1662,72 @@ function draw() {
     }
   }
 
+  // 地图选择 UI
+  if (gameState === 'mapSelect') {
+    ctx.fillStyle = 'rgba(0,0,0,0.78)';
+    ctx.fillRect(0, 0, W, H);
+    const panelW = Math.min(W - 40, 720);
+    const panelH = Math.min(H - 40, 540);
+    const px = (W - panelW) / 2, py = (H - panelH) / 2;
+    ctx.fillStyle = '#1a2630';
+    ctx.fillRect(px, py, panelW, panelH);
+    ctx.strokeStyle = '#5a8aa5';
+    ctx.lineWidth = 4;
+    ctx.strokeRect(px, py, panelW, panelH);
+    ctx.lineWidth = 1;
+
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 22px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('🗺️ 选择地图', W/2, py + 32);
+    ctx.font = '13px sans-serif';
+    ctx.fillText(`💰 ${player.coin}　·　点击卡片切换/解锁　·　按 D 关闭`, W/2, py + 52);
+
+    ctx.textAlign = 'left';
+    const entryH = (panelH - 75) / MAP_ORDER.length - 2;
+    for (let i = 0; i < MAP_ORDER.length; i++) {
+      const id = MAP_ORDER[i];
+      const m = MAPS[id];
+      const unlocked = player.unlockedMaps.includes(id);
+      const active = player.currentMap === id;
+      const y = py + 65 + i * (entryH + 2);
+
+      // 卡片背景：用地图主题渐变作为预览
+      const cgrad = ctx.createLinearGradient(px + 14, y, px + 14, y + entryH);
+      cgrad.addColorStop(0, m.bgTop);
+      cgrad.addColorStop(1, m.bgBot);
+      ctx.fillStyle = cgrad;
+      ctx.fillRect(px + 14, y, panelW - 28, entryH);
+      ctx.strokeStyle = active ? '#7fff7f' : (unlocked ? '#a0c0e0' : '#666');
+      ctx.lineWidth = active ? 3 : 2;
+      ctx.strokeRect(px + 14, y, panelW - 28, entryH);
+      ctx.lineWidth = 1;
+      // 半透明深色覆盖让文字清楚
+      ctx.fillStyle = 'rgba(0,0,0,0.35)';
+      ctx.fillRect(px + 14, y, panelW - 28, entryH);
+
+      ctx.fillStyle = '#fff';
+      ctx.font = 'bold 17px sans-serif';
+      ctx.fillText(m.name, px + 28, y + 22);
+      ctx.font = '12px sans-serif';
+      ctx.fillStyle = '#dde';
+      ctx.fillText(m.desc, px + 28, y + 40);
+      ctx.font = '11px sans-serif';
+      ctx.fillStyle = '#cfa';
+      ctx.fillText('怪物: ' + m.enemyTypes.map(t => CODEX[t] ? CODEX[t].name.replace(/^[🟥🟢🔺🪶💣]\s/, '') : t).join(' / '), px + 28, y + entryH - 8);
+
+      ctx.font = 'bold 14px sans-serif';
+      ctx.textAlign = 'right';
+      if (active) { ctx.fillStyle = '#7fff7f'; ctx.fillText('✓ 当前地图', px + panelW - 28, y + 22); }
+      else if (unlocked) { ctx.fillStyle = '#ace0ff'; ctx.fillText('点击进入', px + panelW - 28, y + 22); }
+      else {
+        ctx.fillStyle = player.coin >= m.price ? '#ffe066' : '#aaa';
+        ctx.fillText(`🔒 💰${m.price} 解锁`, px + panelW - 28, y + 22);
+      }
+      ctx.textAlign = 'left';
+    }
+  }
+
   // 暂停画面
   if (gameState === 'paused') {
     ctx.fillStyle = 'rgba(0,0,0,0.6)';
@@ -1615,9 +1835,9 @@ document.querySelectorAll('[data-key]').forEach(btn => {
   btn.addEventListener('pointerleave', e => { if (keys[k]) release(e); });
 });
 
-// 商店 / 图鉴的点击：根据点击位置触发 (data-key=b/t 已切换 state, 这里只处理 panel 里的卡片)
+// 商店 / 地图 / 图鉴的点击：根据点击位置触发 (data-key=b/t 已切换 state, 这里只处理 panel 里的卡片)
 cv.addEventListener('pointerdown', e => {
-  if (gameState !== 'shop' && gameState !== 'codex' && gameState !== 'paused') return;
+  if (gameState !== 'shop' && gameState !== 'codex' && gameState !== 'paused' && gameState !== 'mapSelect') return;
   const x = e.clientX, y = e.clientY;
   if (gameState === 'shop') {
     const panelW = Math.min(W - 40, 760);
@@ -1642,6 +1862,32 @@ cv.addEventListener('pointerdown', e => {
         return;
       }
     }
+  } else if (gameState === 'mapSelect') {
+    const panelW = Math.min(W - 40, 720);
+    const panelH = Math.min(H - 40, 540);
+    const px = (W - panelW) / 2, py = (H - panelH) / 2;
+    const entryH = (panelH - 75) / MAP_ORDER.length - 2;
+    for (let i = 0; i < MAP_ORDER.length; i++) {
+      const id = MAP_ORDER[i];
+      const m = MAPS[id];
+      const cy = py + 65 + i * (entryH + 2);
+      if (x >= px + 14 && x <= px + panelW - 14 && y >= cy && y <= cy + entryH) {
+        if (player.unlockedMaps.includes(id)) {
+          // 已解锁 → 切换到该地图
+          if (player.currentMap !== id) {
+            switchToMap(id);
+            gameState = 'play';
+          }
+        } else if (player.coin >= m.price) {
+          // 解锁
+          player.coin -= m.price;
+          player.unlockedMaps.push(id);
+          switchToMap(id);
+          gameState = 'play';
+        }
+        return;
+      }
+    }
   }
 });
 
@@ -1650,7 +1896,7 @@ document.addEventListener('gesturestart', e => e.preventDefault());
 document.addEventListener('dblclick', e => e.preventDefault());
 
 function loop() {
-  document.body.classList.toggle('in-menu', gameState === 'shop' || gameState === 'codex' || gameState === 'paused');
+  document.body.classList.toggle('in-menu', gameState === 'shop' || gameState === 'codex' || gameState === 'paused' || gameState === 'mapSelect');
   if (player.hp > 0) update();
   draw();
   requestAnimationFrame(loop);
